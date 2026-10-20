@@ -78,7 +78,12 @@
     "copyright": "BackMeUp",
     "category": "Utility",
     "shortDescription": "Local MySQL backup manager",
-    "longDescription": "BackMeUp is a local-first Windows desktop application for managing MySQL database backups."
+    "longDescription": "BackMeUp is a local-first Windows desktop application for managing MySQL database backups.",
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "allowDowngrades": false
+    }
   },
   "plugins": {
     "updater": {
