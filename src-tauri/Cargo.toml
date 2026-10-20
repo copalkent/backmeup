@@ -1,0 +1,97 @@
+[package]
+name = "backmeup"
+version = "0.1.0"
+description = "BackMeUp - local-first MySQL backup manager for Windows"
+authors = ["BackMeUp"]
+edition = "2021"
+rust-version = "1.82"
+
+[lib]
+name = "backmeup_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+argon2 = "0.5"
+password-hash = "0.5"
+getrandom = "0.3"
+zeroize = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+# --- Phase 2: database connectivity -----------------------------------------
+# Database drivers. Each is used only inside `dbconn/`, which is the single
+# place allowed to open a socket to a database. `default-features = false`
+# keeps native-tls/OpenSSL out of the build on Windows.
+tokio = { version = "1", features = ["net", "io-util", "time"] }
+# tiberius speaks `futures-io` traits; `compat` bridges a tokio stream to them.
+tokio-util = { version = "0.7", features = ["compat"] }
+
+mysql = { version = "28", default-features = false, features = [
+    "minimal-rust",
+    "rustls-tls-ring",
+    # MariaDB's modern authentication plugins. Both are behind a feature flag
+    # and PANIC at runtime when disabled, which would turn a supported server
+    # into a crash rather than an error. Enabled so MariaDB (which is what
+    # Hostinger hPanel runs) authenticates correctly.
+    "client_ed25519",
+    "client_parsec",
+] }
+postgres = "0.19"
+# Google Drive destination: an OAuth token exchange and an upload, both over
+# TLS verified against the Windows certificate store.
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls-native-roots",
+] }
+# SHA-256 of the finished backup file, computed as it is written so a stored
+# dump can be verified later without re-reading it.
+sha2 = "0.10"
+hex = "0.4"
+# Already in the tree via `postgres`; named directly for `SslMode`, so that
+# TLS can be forced on rather than left at the driver's permissive default.
+tokio-postgres = "0.7"
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = [
+    "native-certs",
+] }
+tiberius = { version = "0.13", default-features = false, features = [
+    "tds80",
+    "rustls",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+
+# --- Phase 3: SSH tunneling ---------------------------------------------------
+# Pure-Rust SSH client (no OpenSSL). Used only by `ssh.rs`, which opens the
+# SSH transport; the database driver still connects to a loopback listener.
+russh = "0.45"
+# `russh` declares its client `Handler` trait with `async_trait`; implementing
+# it requires the same macro at the implementation site.
+async-trait = "0.1"
+
+# Windows Credential Manager for OS-protected credential storage, and DPAPI
+# (CryptProtectData) for protecting SSH private-key blobs at rest.
+windows = { version = "0.62", features = [
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
+    "Win32_Foundation",
+    # `GetDiskFreeSpaceExW`, so a backup refuses to start on a full volume
+    # instead of failing halfway through a large dump.
+    "Win32_Storage_FileSystem",
+    # `GetLocalTime`, so backup day folders use the owner's calendar date
+    # rather than UTC (which is yesterday for early-morning backups in UTC+8).
+    "Win32_System_SystemInformation",
+] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The Content Security Policy is enforced by Tauri (see tauri.conf.json) so
+      that it also covers IPC. A meta tag is deliberately not used here: two
+      intersecting policies would silently break the dev server's HMR socket.
+    -->
+    <!-- Applied before first paint to avoid a flash of the wrong palette. -->
+    <script src="/theme-boot.js"></script>
+    <title>BackMeUp</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

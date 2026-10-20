@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege capability set for the BackMeUp main window. The webview may only manage its own window chrome and invoke the app's own authentication commands; filesystem, shell, http and asset access are intentionally not granted.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-is-maximizable",
+    "core:window:allow-is-minimizable",
+    "core:window:allow-is-closable",
+    "core:window:allow-is-resizable",
+    "core:window:allow-is-visible",
+    "core:window:allow-title",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "core:window:allow-set-theme",
+    "core:window:allow-set-background-color"
+  ]
+}
