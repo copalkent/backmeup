@@ -39,7 +39,7 @@ export interface ExportResult {
 }
 
 /**
- * The result of opening the native folder picker. `cancelled` means the owner
+ * The result of opening the native folder picker. `cancelled` means the picker
  * dismissed the dialog and nothing was changed.
  */
 export interface FolderSelection {
@@ -125,7 +125,7 @@ export interface DatabaseConnection {
 export interface ConnectionTestResult {
   /**
    * `unverified` means the SSH server's host key was read and nothing was
-   * authenticated yet; the owner must confirm the fingerprint before a real
+   * authenticated yet; the fingerprint must be confirmed before a real
    * attempt is made.
    */
   outcome: "success" | "failed" | "unverified";
@@ -184,7 +184,7 @@ export const DRIVE_SIGNIN_URL_EVENT = "drive-signin-url";
 /**
  * Subscribe to the Google sign-in URL.
  *
- * Sent before the browser is asked to open, so an owner whose browser did not
+ * Sent before the browser is asked to open, so a browser that did not
  * launch still has a link to follow. Returns an unsubscribe function.
  */
 export function onDriveSigninUrl(handler: (url: string) => void): () => void {
@@ -273,6 +273,60 @@ export interface BackupOverview {
   hasLocalFolder: boolean;
   /** True while a Google Drive sign-in is stored. */
   hasDrive: boolean;
+}
+
+/**
+ * One thing that should be known about.
+ *
+ * Notices are worked out from the facts the app already keeps, so they cannot
+ * go stale or disagree with the history.
+ */
+export interface Notice {
+  /** Stable across reloads. */
+  id: string;
+  /** `update`, `credential` or `backup`. */
+  kind: string;
+  /** `info` or `warning`. */
+  severity: string;
+  title: string;
+  /** One short sentence. */
+  body: string;
+  /** What the button does: `install_update`, `edit_database` or `open_history`. */
+  action: string | null;
+  actionLabel: string | null;
+  /** The connection this is about, when it is about one. */
+  target: string | null;
+  at: number;
+}
+
+/** What the app knows about a newer version. */
+export interface UpdateInfo {
+  /** The newest version published, if one has been seen. */
+  version: string | null;
+  /** The notes published with it. */
+  notes: string | null;
+  /** When it was published. */
+  date: string | null;
+  /** True when a newer version exists than the one running. */
+  available: boolean;
+  /** True when the prompt for this version was dismissed. */
+  dismissed: boolean;
+  /** True when the app has never looked, or the last look was too long ago. */
+  due: boolean;
+}
+
+/** The result of testing every saved connection. */
+export interface ConnectionCheckSummary {
+  /** How many connections were tested. */
+  tested: number;
+  /** How many the server accepted. */
+  ok: number;
+  /** How many were refused. */
+  rejected: number;
+  /** Connections that could not be tested at all. */
+  unreachable: number;
+  /** The connections whose password was refused. */
+  rejectedIds: string[];
 }
 
 /** Error surface returned by the Rust commands. */
@@ -391,7 +445,7 @@ export const api = {
    *
    * For an SSH tunnel the first call returns `unverified` with the server's
    * fingerprint; repeat the call with `hostKeyFingerprint` set to the
-   * fingerprint the owner verified out of band.
+   * fingerprint verified out of band.
    */
   testSavedDatabase: (id: string, hostKeyFingerprint?: string | null) =>
     call<ConnectionTestResult>("test_saved_database", {
@@ -400,6 +454,38 @@ export const api = {
     }),
 
   deleteDatabase: (id: string) => call<void>("delete_database", { id }),
+
+  /**
+   * Re-tests every saved connection and reports which credentials the server
+   * no longer accepts.
+   *
+   * A password that was rotated on the server leaves the saved copy behind,
+   * and without this the same failure is met on every run.
+   */
+  checkAllConnections: () => call<ConnectionCheckSummary>("check_all_connections"),
+
+  // -------------------------------------------------------------------------
+  // Notices and updates
+  // -------------------------------------------------------------------------
+
+  /** Everything the app currently wants to say. */
+  listNotices: () => call<Notice[]>("list_notices"),
+
+  /**
+   * Looks for a newer version. Quiet by design: the app asks at most once a
+   * day, and a failure is reported as "no update" rather than as an error.
+   */
+  checkForUpdate: (force?: boolean) =>
+    call<UpdateInfo>("check_for_update", { force: force ?? false }),
+
+  /** Stops the prompt for a version. The notice itself stays in the bell. */
+  dismissUpdate: (version: string) => call<void>("dismiss_update", { version }),
+
+  /** Shows the prompt for a version again. */
+  resumeUpdatePrompt: () => call<void>("resume_update_prompt"),
+
+  /** Downloads, installs and restarts into the newer version. */
+  installUpdate: () => call<void>("install_update"),
 
   // -------------------------------------------------------------------------
   // Backup destinations
@@ -433,7 +519,7 @@ export const api = {
   // -------------------------------------------------------------------------
   // Google Drive
   //
-  // Sign-in happens in the owner's browser. No Google password is ever sent
+  // Sign-in happens in the default browser. No Google password is ever sent
   // here. The client secret embedded in the backend is a public identifier for
   // a desktop OAuth client; PKCE is what protects the flow.
   // -------------------------------------------------------------------------
@@ -442,7 +528,7 @@ export const api = {
 
   /**
    * Opens the browser at Google's consent screen and waits for the redirect.
-   * Rejects if the owner declines, cancels, or the window times out.
+   * Rejects if the sign-in is declined, cancelled, or the window times out.
    */
   connectGoogleDrive: () => call<GoogleDriveStatus>("connect_google_drive"),
 

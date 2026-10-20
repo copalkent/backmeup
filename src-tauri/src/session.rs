@@ -18,7 +18,7 @@ pub struct Session {
 
 /// Absolute lifetime of a session, independent of inactivity.
 const SESSION_TTL: Duration = Duration::from_secs(60 * 60);
-/// Idle timeout: the owner is asked to sign in again after this long without
+/// Idle timeout: a sign-in is required again after this long without
 /// any successful command.
 const SESSION_IDLE_TTL: Duration = Duration::from_secs(30 * 60);
 
@@ -31,7 +31,7 @@ pub struct AuthState {
     login_throttle: HashMap<String, Throttle>,
     global_login_throttle: Throttle,
     recovery_throttle: Throttle,
-    /// Bounds how often a signed-in owner may attempt a database connection
+    /// Bounds how often a signed-in session may attempt a database connection
     /// test.
     ///
     /// Without this a compromised webview could turn the test command into a
@@ -142,7 +142,7 @@ impl AuthState {
     }
 
     /// Clear the connection-test cooldown after a successful sign-in, so a
-    /// legitimate owner who tripped the limit is not penalised forever.
+    /// a legitimate session that tripped the limit is not penalised forever.
     pub fn reset_connection_test_throttle(&mut self) {
         self.connection_test_throttle.reset();
     }

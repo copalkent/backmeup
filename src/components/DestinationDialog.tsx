@@ -27,7 +27,7 @@ interface DestinationDialogProps {
  * "Where should backups go?" asked only when nothing is configured.
  *
  * Both destinations are equal choices: a local folder, Google Drive, or both.
- * Choosing Drive runs the real sign-in here, so the owner never has to find
+ * Choosing Drive runs the real sign-in here, so there is never a need to find
  * Settings first, and the backend creates the per-database folders before this
  * closes.
  */

@@ -22,7 +22,7 @@ const LOGIN_BASE_PENALTY: Duration = Duration::from_secs(30);
 const LOGIN_MAX_PENALTY: Duration = Duration::from_secs(15 * 60);
 
 /// Global (all identifiers) login ceiling so attempts cannot be spread across
-/// addresses to sidestep the per-account limiter in a single owner app.
+/// addresses to sidestep the per-account limiter in a single-account app.
 const LOGIN_GLOBAL_THRESHOLD: usize = 20;
 const LOGIN_GLOBAL_WINDOW: Duration = Duration::from_secs(5 * 60);
 
@@ -73,11 +73,11 @@ pub struct OwnerProfile {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapState {
-    /// No owner account exists yet: show the first-run setup screen.
+    /// No account exists yet: show the first-run setup screen.
     pub needs_setup: bool,
     /// A verified, unexpired Rust-side session exists.
     pub authenticated: bool,
-    /// The owner confirmed that they saved their first recovery code set.
+    /// The first recovery code set has been confirmed as saved.
     pub setup_confirmed: bool,
     pub owner: Option<OwnerProfile>,
     pub remaining_recovery_codes: Option<u32>,
@@ -176,7 +176,7 @@ fn count_active_codes(conn: &Connection) -> AppResult<(u32, u32)> {
 /// Authorisation gate for every privileged command.
 ///
 /// Two independent checks: an unexpired in-memory session **and** a matching
-/// owner row in the database. Hiding a screen in the frontend is never part of
+/// account row in the database. Hiding a screen in the frontend is never part of
 /// this decision, so the boundary is enforced in Rust for every privileged
 /// command.
 ///
@@ -244,7 +244,7 @@ pub fn app_bootstrap_state(state: State<'_, AppState>) -> AppResult<BootstrapSta
         .map(|s| s.owner_id == id)
         .unwrap_or(false);
 
-    // Data minimisation: the owner profile and recovery code counters are only
+    // Data minimisation: the profile and recovery code counters are only
     // disclosed once the backend has confirmed a live session, so the
     // unauthenticated login screen cannot be used to probe for an account.
     if !authenticated {
@@ -308,7 +308,7 @@ pub fn setup_owner(
     {
         let mut auth = state.lock_auth()?;
         auth.store_pending_codes(&codes);
-        // The owner has just proven possession of the password, so a session is
+        // The password has just been proven, so a session is
         // established here to gate the "codes saved" confirmation step.
         auth.start_session(OWNER_ID, email);
     }
@@ -344,7 +344,7 @@ fn create_owner(
 
     // Authoritative duplicate-creation check: `owner_account` is constrained to
     // a single row, so a concurrent second initialisation fails here instead of
-    // creating a second owner.
+    // creating a second account.
     let inserted = tx.execute(
         "INSERT INTO owner_account (id, full_name, email, password_hash, setup_confirmed, created_at, updated_at)
          VALUES (1, ?1, ?2, ?3, 0, ?4, ?4)",
@@ -381,10 +381,10 @@ fn create_owner(
     Ok(codes)
 }
 
-/// Mark the first recovery code set as saved by the owner.
+/// Mark the first recovery code set as saved.
 ///
 /// This is the only gate between displaying the codes and reaching the
-/// dashboard, and it is enforced in the backend against the owner's session.
+/// dashboard, and it is enforced in the backend against the session.
 #[tauri::command]
 pub fn confirm_setup_codes_saved(state: State<'_, AppState>) -> AppResult<BootstrapState> {
     let (owner_id, _) = require_session(&state)?;
@@ -597,7 +597,7 @@ pub fn recover_password(
         };
     }
 
-    // Resolve the owner up front, but do **not** branch on the result yet: the
+    // Resolve the account up front, but do **not** branch on the result yet: the
     // code verification below must run for an unknown address too, otherwise
     // the response time would disclose whether the account exists.
     let owner_id: Option<i64> = {
@@ -760,8 +760,8 @@ pub fn recovery_code_status(state: State<'_, AppState>) -> AppResult<RecoveryCod
 /// Generate a replacement set of recovery codes.
 ///
 /// The new set is stored as `pending`. The previous set stays valid until the
-/// owner confirms the replacement, so an interrupted regeneration can never
-/// leave the owner without a working code set.
+/// replacement is confirmed, so an interrupted regeneration can never leave the
+/// account without a working code set.
 #[tauri::command]
 pub fn begin_recovery_code_regeneration(
     state: State<'_, AppState>,
@@ -893,7 +893,7 @@ pub fn commit_recovery_code_regeneration(state: State<'_, AppState>) -> AppResul
         };
 
         // The previous set is retired only now, i.e. after the new set exists
-        // and the owner confirmed the replacement.
+        // and the replacement was confirmed.
         tx.execute("DELETE FROM recovery_code_sets WHERE status = 'active'", [])?;
         tx.execute(
             "UPDATE recovery_code_sets SET status = 'active', confirmed_at = ?2 WHERE id = ?1",
@@ -928,7 +928,7 @@ pub fn cancel_recovery_code_regeneration(state: State<'_, AppState>) -> AppResul
 // Recovery code export
 // ---------------------------------------------------------------------------
 
-/// Write the pending recovery codes to a text file chosen by the owner in the
+/// Write the pending recovery codes to a text file chosen in the
 /// native Windows save dialog.
 ///
 /// The destination path never comes from the webview: it is produced by the
@@ -940,7 +940,7 @@ pub async fn export_recovery_codes(
     state: State<'_, AppState>,
 ) -> AppResult<ExportResult> {
     let pending = {
-        // Exporting is a privileged action: the owner must still hold a live
+        // Exporting is a privileged action: a live session must still be held
         // session, not merely have codes pending in memory.
         require_session(&state)?;
         state.lock_auth()?.pending_codes().ok_or_else(|| {

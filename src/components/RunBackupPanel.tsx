@@ -14,6 +14,7 @@ import {
   type DatabaseConnection,
 } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
+import { notifyNoticesChanged } from "@/lib/events";
 
 /** Progress events arrive at most this often, so elapsed time stays honest. */
 const TICK_MS = 500;
@@ -24,7 +25,7 @@ const TICK_MS = 500;
  * Two states matter here: a run is in flight with live counters, and no
  * destination has been chosen yet (the destination dialog is offered when a
  * backup is requested). The outcome of a finished run is a toast, so it is
- * visible wherever the owner has moved to.
+ * visible wherever the window has moved to.
  */
 export function RunBackupPanel({ onFinished }: { onFinished?: () => void }) {
   const { toast } = useToast();
@@ -134,6 +135,9 @@ export function RunBackupPanel({ onFinished }: { onFinished?: () => void }) {
         setActiveRunId("pending");
         const outcome = await api.startBackupRun(database.id);
         onFinishedRef.current?.();
+        // The bell counts what has been backed up, so it has to hear about
+        // this run.
+        notifyNoticesChanged();
 
         if (outcome.stage === "succeeded") {
           const details = [

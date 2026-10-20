@@ -197,7 +197,7 @@ fn connection_refused_error(target: Option<&ConnectionTarget>) -> AppError {
     }
 }
 
-/// Name a packet-parse failure in the owner's own words.
+/// Name a packet-parse failure in plain words.
 ///
 /// The driver's `PacketCodecError` is not a public type in this version, so the
 /// variant is recognised from its debug shape. Every sentence below is written
@@ -337,7 +337,7 @@ pub fn classify_error(
             ),
         ),
 
-        // A packet the driver could not parse. The owner gets a sentence that says
+        // A packet the driver could not parse. The message is a sentence that says
         // *what kind* of protocol problem it was, because "malformed packet"
         // alone cannot be acted on: a stream that ended early and replies that
         // arrived out of order need completely different fixes.

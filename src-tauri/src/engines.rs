@@ -19,8 +19,8 @@ use crate::error::AppResult;
 pub struct Engine {
     pub id: &'static str,
     pub label: &'static str,
-    /// Port pre-filled when the owner adds a connection. A suggestion only: the
-    /// owner can always change it, and nothing here is ever dialled.
+    /// Port pre-filled when a connection is added. A suggestion only: it
+    /// can always be changed, and nothing here is ever dialled.
     pub default_port: u16,
     /// False for engines that only ever run on the local machine and therefore
     /// need no host.
@@ -74,7 +74,7 @@ pub const ENGINES: &[Engine] = &[
         supports_host: true,
         // SQL Server listens on the loopback interface for its default
         // instance; named instances usually use a dynamic port, which the
-        // owner can override.
+        // it can be overridden.
         local_host: "127.0.0.1",
         supported: true,
         supports_ssh_tunnel: false,
@@ -111,7 +111,7 @@ pub const CONNECTION_METHODS: &[ConnectionMethod] = &[
         id: SSH_TUNNEL_METHOD_ID,
         label: "SSH tunnel",
         // The database address is resolved by the SSH server, so it defaults
-        // to the engine's loopback address when the owner leaves it blank.
+        // to the engine's loopback address when it is left blank.
         requires_host: false,
     },
 ];

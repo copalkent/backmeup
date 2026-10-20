@@ -192,6 +192,16 @@ fn migrate(conn: &Connection) -> AppResult<()> {
         CREATE INDEX IF NOT EXISTS idx_config_events_time
             ON config_events (category, occurred_at);
 
+        -- Small key/value store for things the app must remember between
+        -- runs: the last update check, the version the owner was last told
+        -- about, and the version they asked not to be reminded about again.
+        -- Nothing secret is ever written here.
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT,
+            updated_at INTEGER NOT NULL
+        );
+
         COMMIT;
         "#,
     )
@@ -239,8 +249,7 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     ensure_column(conn, "backup_runs", "drive_status", "TEXT")?;
     ensure_column(conn, "backup_runs", "drive_error", "TEXT")?;
 
-    // Where the finished file actually landed, so history can point the owner
-    // at it. `file_name` is the copy kept in the local folder (never the
+    // Where the finished file actually landed, so history can point at it. `file_name` is the copy kept in the local folder (never the
     // staging file, which is deleted after upload); `drive_path` is the
     // `BackMeUp/<database>/<day>/<file>` path in Drive.
     ensure_column(conn, "backup_runs", "file_name", "TEXT")?;
@@ -251,6 +260,50 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     // later gives the same value, and any other value means the file changed.
     ensure_column(conn, "backup_runs", "sha256", "TEXT")?;
 
+    // Whether the stored secret for this connection was accepted the last
+    // time it was tried. A password that was rotated on the server leaves the
+    // saved copy behind, and this is how the app can say so plainly instead
+    // of failing every run with a vague message.
+    ensure_column(
+        conn,
+        "database_connections",
+        "credential_status",
+        "TEXT CHECK (credential_status IS NULL OR credential_status IN ('ok', 'rejected'))",
+    )?;
+    ensure_column(conn, "database_connections", "credential_checked_at", "INTEGER")?;
+
+    Ok(())
+}
+
+/// Read one setting.
+///
+/// Settings are small and never secret: the last update check, the version
+/// the version last shown, and the version not to be reminded
+/// about again.
+pub fn setting(conn: &Connection, key: &str) -> AppResult<Option<String>> {
+    let mut stmt = conn.prepare("SELECT value FROM app_settings WHERE key = ?1")?;
+    let mut rows = stmt.query([key])?;
+
+    match rows.next()? {
+        Some(row) => Ok(row.get(0)?),
+        None => Ok(None),
+    }
+}
+
+/// Write one setting.
+pub fn set_setting(conn: &Connection, key: &str, value: Option<&str>) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT (key) DO UPDATE SET value = ?2, updated_at = ?3",
+        rusqlite::params![key, value, crate::util::now_secs()],
+    )?;
+
+    Ok(())
+}
+
+/// Remove one setting.
+pub fn clear_setting(conn: &Connection, key: &str) -> AppResult<()> {
+    conn.execute("DELETE FROM app_settings WHERE key = ?1", [key])?;
     Ok(())
 }
 

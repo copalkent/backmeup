@@ -9,11 +9,13 @@ mod drive;
 mod engines;
 mod error;
 mod mysqldump;
+mod notices;
 mod password;
 mod recovery;
 mod runs;
 mod session;
 mod ssh;
+mod updates;
 mod util;
 mod validate;
 
@@ -37,6 +39,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // The database is opened once, in the backend, before any command
             // can run. It lives in the per-user application data directory.
@@ -75,11 +78,14 @@ pub fn run() {
             // a socket to a database or read a stored password.
             databases::test_database_connection,
             databases::test_saved_database,
+            // Test every saved connection at once, and report which
+            // credentials the server no longer accepts.
+            databases::check_all_connections,
             // Backup destinations.
             destinations::list_backup_destinations,
             destinations::choose_local_backup_folder,
             destinations::clear_local_backup_folder,
-            // Google Drive. Sign-in happens in the owner's browser; BackMeUp
+            // Google Drive. Sign-in happens in the default browser; BackMeUp
             // never sees a Google password. The client secret is a public
             // identifier that ships with the app, and PKCE protects the flow.
             drive::google_drive_status,
@@ -98,6 +104,13 @@ pub fn run() {
             runs::start_backup_run,
             runs::cancel_backup_run,
             runs::active_backup_run,
+            // Notices: the things worth saying once, that a toast would lose.
+            notices::list_notices,
+            // Updates. The check is quiet, and the install is signed.
+            updates::check_for_update,
+            updates::dismiss_update,
+            updates::resume_update_prompt,
+            updates::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BackMeUp");

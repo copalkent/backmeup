@@ -82,21 +82,21 @@ const SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
 /// Provider key used for credential storage and for the destination kind.
 pub const PROVIDER: &str = "google-drive";
 
-/// Event carrying the sign-in URL to the window, so the owner always has a way
+/// Event carrying the sign-in URL to the window, so there is always a way
 /// to finish signing in even if no browser opened.
 pub const SIGNIN_URL_EVENT: &str = "drive-signin-url";
 
 /// Root folder created in the user's Drive. Every backup lands below it.
 pub const ROOT_FOLDER: &str = "BackMeUp";
 
-/// How long the owner has to finish signing in.
+/// How long there is to finish signing in.
 ///
 /// Deliberately short: while this waits, the Connect button is unavailable, so
 /// an abandoned attempt must not leave the app looking stuck. The sign-in URL is
 /// sent to the window as soon as it exists, so a browser that failed to open is
 /// still recoverable.
 const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(120);
-/// How often the wait re-checks whether the owner cancelled. The listener is
+/// How often the wait re-checks whether the sign-in was cancelled. The listener is
 /// polled rather than parked for the whole timeout, so pressing Cancel in the
 /// window takes effect immediately instead of after two minutes.
 const CANCEL_POLL: Duration = Duration::from_millis(250);
@@ -105,7 +105,7 @@ const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// Ceiling on a single HTTP call to Google.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Set while the owner has asked to stop an in-flight sign-in.
+/// Set while a stop has been asked for an in-flight sign-in.
 ///
 /// One sign-in can be in flight at a time (the Connect button is unavailable
 /// while it runs), so a single flag is enough. A new attempt clears it before
@@ -258,7 +258,7 @@ fn drive_error() -> AppError {
     )
 }
 
-/// The owner stopped the sign-in before it finished.
+/// The sign-in was stopped before it finished.
 fn sign_in_cancelled() -> AppError {
     AppError::new(
         "drive_cancelled",
@@ -274,10 +274,10 @@ struct GoogleErrorBody {
     error: String,
 }
 
-/// Turn a failed token response into an error the owner can act on.
+/// Turn a failed token response into an error that can be acted on.
 ///
 /// The distinction matters: `invalid_client` means the app is misconfigured and
-/// retrying cannot help, while `invalid_grant` means the owner's grant is gone
+/// retrying cannot help, while `invalid_grant` means the grant is gone
 /// and only a fresh sign-in can fix it.
 fn classify_token_error(status: reqwest::StatusCode, body: &str) -> AppError {
     let parsed = serde_json::from_str::<GoogleErrorBody>(body).unwrap_or(GoogleErrorBody {
@@ -533,7 +533,7 @@ async fn read_redirect(
     let request = String::from_utf8_lossy(&buffer[..read]).to_string();
 
     // A cancel that arrived while the request was being read still wins: the
-    // owner asked to stop, and completing the exchange would contradict that.
+    // a stop was asked for, and completing the exchange would contradict that.
     if CONNECT_CANCELLED.load(Ordering::SeqCst) {
         return Err(sign_in_cancelled());
     }
@@ -651,12 +651,12 @@ fn percent_decode(value: &str) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct DriveStatus {
     pub connected: bool,
-    /// The folder BackMeUp creates in Drive, for the owner to recognise.
+    /// The folder BackMeUp creates in Drive, so it is recognisable.
     pub root_folder: String,
     /// Database folders created inside `root_folder`, one per saved connection.
     pub folders: Vec<String>,
     /// Shown whenever Drive is connected. Storage is shared with the rest of
-    /// the account, so a large database may not fit - and the owner should know
+    /// the account, so a large database may not fit - and that should be known
     /// before they rely on it.
     pub storage_warning: String,
     /// The only scope requested, spelled out so the consent screen can be
@@ -711,9 +711,9 @@ fn stored_folder_names(state: &State<'_, AppState>) -> AppResult<Vec<String>> {
 
 /// Sign in to Google Drive.
 ///
-/// Opens the owner's normal browser at Google's consent screen and waits on a
+/// Opens the default browser at Google's consent screen and waits on a
 /// `127.0.0.1` listener for the redirect. Nothing is sent to Google until the
-/// owner approves it there, and no Google password ever reaches BackMeUp.
+/// it is approved there, and no Google password ever reaches BackMeUp.
 #[tauri::command]
 pub async fn connect_google_drive(
     app: AppHandle,
@@ -722,7 +722,7 @@ pub async fn connect_google_drive(
     require_session(&state)?;
 
     // Checked before the browser opens: a build without a client secret cannot
-    // complete a sign-in, and the owner should be told now rather than after
+    // complete a sign-in, and that should be said now rather than after
     // approving the consent screen.
     client_secret()?;
 
@@ -751,7 +751,7 @@ pub async fn connect_google_drive(
 
     // The URL is sent to the window *before* the browser is asked to open it. If
     // the automatic open fails - a locked-down browser policy, a headless
-    // machine - the owner can still follow the link in the UI, so a failed
+    // machine - the link can still be followed in the UI, so a failed
     // convenience never becomes a dead end.
     let _ = app.emit(SIGNIN_URL_EVENT, url.clone());
 
@@ -792,7 +792,7 @@ pub async fn connect_google_drive(
     }
 
     // Create `BackMeUp/<database>` for every saved connection now, rather than
-    // waiting for the first upload: the owner can see the destination is ready.
+    // waiting for the first upload: the destination is visibly ready.
     // Best effort - a network hiccup here must not throw away a good sign-in,
     // and every upload ensures its folders again. A database list that cannot
     // be read is equally non-fatal; the root folder is still created.
@@ -823,14 +823,14 @@ pub fn cancel_google_drive_connect(state: State<'_, AppState>) -> AppResult<()> 
 /// Disconnect Google Drive.
 ///
 /// Revokes the grant with Google on a best-effort basis, then deletes the stored
-/// tokens. Files already uploaded stay in the owner's Drive: forgetting a
+/// tokens. Files already uploaded stay in the Drive account: forgetting a
 /// sign-in is not a request to delete anyone's data.
 #[tauri::command]
 pub async fn disconnect_google_drive(state: State<'_, AppState>) -> AppResult<DriveStatus> {
     require_session(&state)?;
 
     // Revoking at Google is what actually ends the grant. If it fails (offline,
-    // already revoked) the local tokens are still deleted: the owner asked to
+    // already revoked) the local tokens are still deleted: a disconnect was asked for
     // disconnect, and keeping a usable refresh token would contradict that.
     if let Ok(Some(tokens)) = stored_tokens() {
         if let Ok(client) = http() {
@@ -901,7 +901,7 @@ pub async fn sync_google_drive_folders(state: State<'_, AppState>) -> AppResult<
 /// Keep the Drive folder tree in step with the app, in the background.
 ///
 /// Called when a database is added while Drive is connected, so its
-/// `BackMeUp/<database>` folder exists without the owner pressing anything.
+/// `BackMeUp/<database>` folder exists without anything being pressed.
 /// Best effort by design: a failure is logged only, because every upload
 /// ensures its own folders again before writing.
 pub fn spawn_folder_sync(app: AppHandle) {
@@ -972,7 +972,7 @@ async fn exchange_code(
     parsed.into_tokens("")
 }
 
-/// Open a URL in the owner's default browser.
+/// Open a URL in the default browser.
 ///
 /// Uses the Windows shell protocol handler rather than spawning a shell, so the
 /// URL is passed as one argument and nothing in it can be interpreted as a
@@ -1006,7 +1006,7 @@ const FOLDER_MIME: &str = "application/vnd.google-apps.folder";
 /// protocol requires.
 const CHUNK_BYTES: usize = 8 * 1024 * 1024;
 
-/// Free and used space on the owner's Drive.
+/// Free and used space on the Drive account.
 #[derive(Deserialize)]
 struct StorageQuota {
     #[serde(default)]
@@ -1026,7 +1026,7 @@ impl StorageQuota {
     }
 }
 
-/// Map a failed Drive REST response onto an error the owner can act on.
+/// Map a failed Drive REST response onto an error that can be acted on.
 ///
 /// Drive's error bodies are not the OAuth shape, so only the status is used.
 /// Nothing from the body is logged beyond the numeric status.

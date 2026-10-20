@@ -1,0 +1,11 @@
+{
+  "version": "0.1.1",
+  "notes": "BackMeUp 0.1.1.\n\n- the Google OAuth client secret is now injected at build time, so it is not in the repository\n- the app tells you when a stored password is no longer accepted, instead of failing every backup\n- notifications in the title bar: an available update, a refused password, and what was backed up\n- updates can now install themselves\n",
+  "pub_date": "2026-10-20T02:32:34.000Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSRGhrWTFvMnVKN2lKWmZsUnI2cndZL01ENlNtc3pYOGR4NFdJN0ZYVDJYVExxL2MzeCtnTTZ3cDVtWlBNT09ncnprYkRvQmlUQ3k3OEhQaElvSEFLSnRCVWFkMlNqc0E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDYzNTU0CWZpbGU6QmFja01lVXBfMC4xLjFfeDY0X2VuLVVTLm1zaQl2ZXJzaW9uOjAuMS4xCmI3V0FackdEVC9UYkV3SW40aFAwcEQxeVBKMTByWXQvcloyUGl6bS9BcVhQanV3KzIzUWdNOW04Slh2eG16ZTlQbjhGNWtmUHFWVzdaRWdPUFc2T0NBPT0K",
+      "url": "https://github.com/copalkent/backmeup/releases/download/v0.1.1/BackMeUp_0.1.1_x64_en-US.msi"
+    }
+  }
+}

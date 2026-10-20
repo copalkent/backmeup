@@ -177,6 +177,71 @@ you mean to overwrite.
 
 ---
 
+## Updates
+
+The app can update itself.
+
+- On launch it reads one small file, `latest.json`, from this repository. That
+  is the whole check: one request, no data sent, and a machine with no network
+  hears nothing at all.
+- When a newer version exists, a prompt offers to install it. **Closing the
+  prompt does not lose the offer** — the notice stays in the bell in the title
+  bar until the version is installed.
+- The download is checked against the update signing key before it is run, so a
+  tampered file is refused rather than installed.
+- The check runs at most once a day, and never during a backup.
+
+The private half of the signing key is **not** in this repository. It lives on
+the machine that made the release, and its passphrase is in Windows Credential
+Manager under `BackMeUp:updater-signing-key`. Lose either and updates can no
+longer be published.
+
+## Notices
+
+Some things are worth saying once, and a toast is gone in five seconds. Those
+live in the bell in the title bar:
+
+- **An update is available** — with the button that installs it.
+- **A stored password was refused** — with the button that re-enters it. A
+  password that was rotated on the server leaves the saved copy behind, and
+  without this every backup fails with a message that does not say what to do.
+- **What was backed up** — which database, how many rows, and how many of the
+  saved databases have been backed up so far.
+
+Notices are worked out from the facts the app already keeps, so they cannot go
+stale or disagree with the history.
+
+The **Check all** button on the Databases screen tests every saved connection
+and reports which passwords the server no longer accepts.
+
+---
+
+## Releasing
+
+`latest.json` is committed to this repository and points at the newest release.
+It is rewritten as part of every release.
+
+A release is one command:
+
+```powershell
+python release.py 0.1.1
+```
+
+which writes the version into `package.json`, `Cargo.toml` and
+`tauri.conf.json`, builds the installers with the OAuth secret and the update
+signing key supplied through the environment, turns the signature the build
+produced into `latest.json`, commits, pushes, tags, and uploads the installers
+to the release.
+
+Two secrets are needed, and neither is in the repository:
+
+| Secret | Where it comes from |
+|---|---|
+| `BACKMEUP_OAUTH_CLIENT_SECRET` | `secrets.local.ps1` (gitignored) |
+| The update signing passphrase | Windows Credential Manager, `BackMeUp:updater-signing-key` |
+
+---
+
 ## Project layout
 
 ```text

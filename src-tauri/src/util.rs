@@ -57,3 +57,36 @@ pub fn normalize_identifier(input: &str) -> String {
 pub fn contains_control_chars(input: &str) -> bool {
     input.chars().any(|c| c.is_control())
 }
+
+/// A byte count as a short, human-sized string: `9.0 KB`, `4.2 MB`.
+pub fn format_bytes(bytes: i64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+
+    let mut value = bytes as f64;
+    let mut unit = 0;
+
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn byte_counts_are_readable() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(999), "999 B");
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(9216), "9.0 KB");
+        assert_eq!(format_bytes(5_324_800), "5.1 MB");
+    }
+}

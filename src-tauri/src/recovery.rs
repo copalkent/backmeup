@@ -21,7 +21,7 @@ const RECOVERY_CODE_COUNT: usize = 10;
 
 /// A freshly generated set of recovery codes.
 ///
-/// The plaintext exists only in memory, is shown to the owner exactly once and
+/// The plaintext exists only in memory, is shown exactly once and
 /// is never written to SQLite, to configuration files or to any log.
 #[derive(Clone)]
 pub struct RecoveryCodeBundle {

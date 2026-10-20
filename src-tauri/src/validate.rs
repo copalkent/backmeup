@@ -21,7 +21,7 @@ const COMMON_PASSWORDS: &[&str] = &[
     "database12345",
 ];
 
-/// Validate and normalise the owner's display name.
+/// Validate and normalise the display name.
 pub fn validate_full_name(raw: &str) -> AppResult<String> {
     if crate::util::contains_control_chars(raw) {
         return Err(AppError::invalid_input(

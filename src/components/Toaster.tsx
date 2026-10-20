@@ -27,7 +27,7 @@ interface ToastEntry extends Required<ToastInput> {
 }
 
 interface ToastContextValue {
-  /** Show a toast. Every result the owner should notice goes through here. */
+  /** Show a toast. Every result worth noticing goes through here. */
   toast: (input: ToastInput) => void;
 }
 

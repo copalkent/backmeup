@@ -206,7 +206,7 @@ fn load_at_target(target_name: &str) -> AppResult<(CredentialState, Option<Zeroi
                     Some(Zeroizing::new(text.trim_end_matches('\0').to_string())),
                 ),
                 // A corrupt entry is treated as absent rather than crashing,
-                // and is reported so the UI can ask the owner to re-enter it.
+                // and is reported so the UI can ask for it to be re-entered.
                 None => (CredentialState::Absent, None),
             }
         }
@@ -629,6 +629,18 @@ pub fn oauth_tokens_exist(provider: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Windows Credential Manager serialises its own writes, but a read that
+    /// follows a write can still miss it while another thread is writing. The
+    /// tests that touch the store take this lock so they never race each
+    /// other, which is the only way these assertions are meaningful.
+    static STORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn store_lock() -> std::sync::MutexGuard<'static, ()> {
+        // A poisoned lock means another test failed, not that the store is
+        // broken, so the guard is taken anyway.
+        STORE_LOCK.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
     #[test]
     fn wide_is_nul_terminated() {
         assert_eq!(wide("ab"), vec![b'a' as u16, b'b' as u16, 0]);
@@ -661,6 +673,7 @@ mod tests {
     #[test]
     fn deleting_an_absent_credential_is_not_an_error() {
         // Nothing has been stored under this id, so delete must be idempotent.
+        let _guard = store_lock();
         let id = "backmeup-test-absent-entry";
         delete(id).unwrap();
         delete(id).unwrap();
@@ -669,6 +682,7 @@ mod tests {
 
     #[test]
     fn round_trips_a_secret_through_the_credential_manager() {
+        let _guard = store_lock();
         let id = "backmeup-test-roundtrip";
         let _ = delete(id);
 
@@ -692,6 +706,7 @@ mod tests {
 
     #[test]
     fn round_trips_an_ssh_password_secret() {
+        let _guard = store_lock();
         let id = "backmeup-test-ssh-password-roundtrip";
         let _ = delete_ssh_password(id);
 

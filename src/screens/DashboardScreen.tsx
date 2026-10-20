@@ -80,7 +80,7 @@ export function DashboardScreen({
    * Back up every eligible database, one after another.
    *
    * Sequential on purpose: the backend allows one run at a time, and hammering
-   * a small hosting account with parallel dumps is how you get throttled. Each
+   * a small hosting account with parallel dumps is how throttling happens. Each
    * database reports its own outcome, so one failure does not hide the rest.
    */
   const backUpAll = useCallback(async () => {
@@ -202,7 +202,7 @@ export function DashboardScreen({
     await load();
 
     // The modal spells out each database; the toast is the one-line summary
-    // for the case where the owner has already moved on to another screen.
+    // for the case where the app has already moved on to another screen.
     toast({
       variant: failed > 0 ? "error" : "success",
       title:
@@ -357,7 +357,7 @@ export function DashboardScreen({
 
       {/*
         The result of a "back up all" run stays on screen until it is dismissed,
-        so a failure is never something the owner has to remember. The toast
+        so a failure is never something that has to be remembered. The toast
         carries the one-line summary.
       */}
       {batch ? (

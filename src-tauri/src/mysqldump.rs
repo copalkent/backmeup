@@ -7,7 +7,7 @@
 //!     `SET` statements are ever issued: no `LOCK TABLES`, no `FLUSH`, no
 //!     `SET GLOBAL`, no DDL. The dump reads inside one
 //!     `START TRANSACTION WITH CONSISTENT SNAPSHOT`, so InnoDB tables are
-//!     captured from a single point in time without blocking the owner's
+//!     captured from a single point in time without blocking live writes
 //!     writes.
 //!   * No user input reaches a statement. Object names come from the server and
 //!     are re-quoted before use; values are rendered as literals.
@@ -59,7 +59,11 @@ const MAX_INSERT_BYTES: usize = 512 * 1024;
 pub enum DumpError {
     /// The account lacks a privilege a logical dump needs.
     Privileges,
-    /// The run was cancelled by the owner.
+    /// The server refused the user name or password. Kept apart from the
+    /// other failures because it is the one that can be fixed by re-entering
+    /// the saved password.
+    Authentication,
+    /// The run was cancelled.
     Cancelled,
     /// A server object name or value could not be written safely.
     UnsupportedObject,
@@ -67,10 +71,10 @@ pub enum DumpError {
     /// `stage` is one of BackMeUp's own words and `detail` describes what it
     /// was reading - neither is server text, so both are safe to show.
     Statement { stage: String, detail: String },
-    /// A short, safe reason already phrased for the owner.
+    /// A short, safe reason, already phrased for display.
     Reason(String),
     /// Writing the file failed. The payload is kept for the local log only and
-    /// is never surfaced: an OS error can embed a path the owner chose.
+    /// is never surfaced: an OS error can embed a chosen path.
     Io(#[allow(dead_code)] std::io::Error),
 }
 
@@ -78,6 +82,7 @@ impl std::fmt::Display for DumpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DumpError::Privileges => f.write_str("missing_privileges"),
+            DumpError::Authentication => f.write_str("auth_failed"),
             DumpError::Cancelled => f.write_str("cancelled"),
             DumpError::UnsupportedObject => f.write_str("unsupported_object"),
             DumpError::Statement { stage, .. } => write!(f, "failed_at_{stage}"),
@@ -87,7 +92,7 @@ impl std::fmt::Display for DumpError {
     }
 }
 
-/// The stages a dump moves through, named for the owner rather than for SQL.
+/// The stages a dump moves through, named for display rather than for SQL.
 pub mod stage {
     pub const SESSION: &str = "preparing";
     pub const LISTING: &str = "listing_objects";
@@ -108,7 +113,7 @@ impl From<std::io::Error> for DumpError {
 pub trait DumpControl {
     /// Called at every table boundary and every flushed statement.
     fn report(&self, tables_done: u64, rows: u64);
-    /// True once the owner asked to stop. Checked often enough to be responsive.
+    /// True once a stop was asked for. Checked often enough to be responsive.
     fn cancelled(&self) -> bool;
 }
 
@@ -636,7 +641,7 @@ fn as_text(value: &Value) -> Option<String> {
 ///
 /// The definer names an account that may not exist on the machine where the
 /// dump is restored, and it would otherwise hard-code a server account name
-/// into a file the owner may share.
+/// into a file that may be shared.
 pub fn strip_definer(definition: &str) -> String {
     const KEY: &str = " DEFINER=";
     let Some(start) = definition.find(KEY) else {
@@ -690,13 +695,17 @@ fn unsupported(name: &str) -> impl Fn(DumpError) -> DumpError {
 /// Map a driver error onto a safe reason that says *what* was being read.
 ///
 /// `stage` and `detail` are BackMeUp's own words, never server text, so the
-/// owner learns which part of the database failed instead of being told only
+/// the failing part of the database is known instead of being told only
 /// that a packet was malformed.
 fn map_sql(err: mysql::Error, stage: &str, detail: &str) -> DumpError {
     if let mysql::Error::MySqlError(server) = &err {
         match server.code {
             // The account cannot see the object, or may not run the statement.
             1044 | 1142 | 1143 | 1227 | 1370 => return DumpError::Privileges,
+            // ER_ACCESS_DENIED_ERROR: the password was refused. This is the
+            // one failure that can be fixed, so it is named rather than
+            // reported as a broken statement.
+            1045 => return DumpError::Authentication,
             1049 => {
                 return DumpError::Reason("That database no longer exists.".to_string());
             }
@@ -711,7 +720,7 @@ fn map_sql(err: mysql::Error, stage: &str, detail: &str) -> DumpError {
 
     eprintln!("[backmeup] dump failed while {detail} at {stage}: {err}");
 
-    // Reuse the tested connection-error mapping so the owner still sees a safe
+    // Reuse the tested connection-error mapping so a safe sentence is still shown
     // sentence, now with the stage attached so a failure is actionable.
     DumpError::Statement {
         stage: stage.to_string(),
@@ -985,7 +994,7 @@ mod tests {
 
     #[test]
     fn every_unsupported_object_name_is_bounded_in_the_log() {
-        // The name is logged truncated, and the error that reaches the owner
+        // The name is logged truncated, and the error that reaches the screen
         // carries no name at all - so a hostile server name can neither be
         // echoed into the UI nor flood the log.
         let hostile = format!("LEAKED_NAME_{}", "n".repeat(500));

@@ -7,7 +7,7 @@ use zeroize::Zeroizing;
 use crate::error::AppResult;
 use crate::util;
 
-/// Argon2id parameters for the owner password.
+/// Argon2id parameters for the account password.
 ///
 /// 46 MiB / 1 pass / 1 lane follows the OWASP Password Storage Cheat Sheet
 /// recommendation for Argon2id. The parameters are pinned in code and encoded
@@ -39,7 +39,7 @@ fn recovery_hasher() -> AppResult<Argon2<'static>> {
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 
-/// Hash an owner password with Argon2id and a freshly generated 128-bit salt.
+/// Hash an account password with Argon2id and a freshly generated 128-bit salt.
 ///
 /// Returns a PHC formatted string (`$argon2id$v=19$m=...,t=...,p=...$salt$hash`)
 /// that is safe to persist. The plaintext is zeroized by the caller.

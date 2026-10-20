@@ -15,7 +15,7 @@ interface RecoveryCodesScreenProps {
 
 /**
  * Shows a freshly generated set of recovery codes exactly once and requires the
- * owner to confirm that they saved them.
+ * codes to be confirmed as saved.
  */
 export function RecoveryCodesScreen({
   codes,

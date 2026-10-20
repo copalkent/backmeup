@@ -139,6 +139,9 @@ pub struct ConnectionTestResult {
     pub encrypted: bool,
     /// Safe, actionable sentence. Never contains a host, user or password.
     pub message: String,
+    /// BackMeUp's own code for the failure, so the app can tell a rejected
+    /// password from a network problem. Never server text.
+    pub code: Option<String>,
     /// Display-form host-key fingerprint (`SHA256:<base64>`) when the outcome
     /// is `unverified` or `failed` because the server's key changed. Public
     /// data.
@@ -255,7 +258,7 @@ fn ssh_secret_present(app: &AppHandle, row: &DatabaseRow) -> bool {
     }
 }
 
-/// Every connection the owner has configured.
+/// Every connection configured.
 ///
 /// Requires a live Rust-side session; the join to `owner_account` inside
 /// `require_session` is what makes that authoritative rather than a frontend
@@ -299,7 +302,7 @@ pub fn count(conn: &Connection) -> AppResult<u32> {
 /// Secrets (`ssh_password`, `ssh_private_key`, `ssh_key_passphrase`) are
 /// optional here because the same shape serves three flows: creating a
 /// connection (secrets required for the chosen method), editing one (secrets
-/// present only when the owner re-enters them) and testing one from the form
+/// present only when they are re-entered) and testing one from the form
 /// (secrets required for the chosen method, and never stored).
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -645,6 +648,12 @@ fn record_test_budget(state: &AppState) {
 
 /// Build the result payload for a failure without leaking driver detail.
 fn failure(err: AppError) -> AppResult<ConnectionTestResult> {
+    let code = if err.code.is_empty() {
+        None
+    } else {
+        Some(err.code.to_string())
+    };
+
     Ok(ConnectionTestResult {
         outcome: "failed".to_string(),
         server_banner: None,
@@ -653,6 +662,7 @@ fn failure(err: AppError) -> AppResult<ConnectionTestResult> {
         // established either.
         encrypted: false,
         message: err.message,
+        code,
         host_key_fingerprint: None,
         host_key_type: None,
     })
@@ -666,13 +676,14 @@ fn success(report: dbconn::ConnectionReport) -> ConnectionTestResult {
         encrypted: report.encrypted,
         message: "BackMeUp connected and the database accepted these credentials."
             .to_string(),
+        code: None,
         host_key_fingerprint: None,
         host_key_type: None,
     }
 }
 
 /// The SSH server's key has been read but not verified: nothing was
-/// authenticated, and the owner must compare the fingerprint out of band.
+/// authenticated, and the fingerprint must be compared out of band.
 fn unverified(info: &ssh::HostKeyInfo) -> ConnectionTestResult {
     ConnectionTestResult {
         outcome: "unverified".to_string(),
@@ -683,6 +694,7 @@ fn unverified(info: &ssh::HostKeyInfo) -> ConnectionTestResult {
         message: "The SSH server presented this host key. Compare it with the server itself \
                   before connecting; BackMeUp has not trusted it yet."
             .to_string(),
+        code: Some("host_key_unverified".to_string()),
         host_key_fingerprint: Some(display_fingerprint(&info.fingerprint)),
         host_key_type: Some(info.key_type.clone()),
     }
@@ -709,6 +721,7 @@ fn host_key_changed(presented: &ssh::HostKeyInfo, expected: Option<&str>) -> Con
             expected_text,
             display_fingerprint(&presented.fingerprint),
         ),
+        code: Some("host_key_changed".to_string()),
         host_key_fingerprint: Some(display_fingerprint(&presented.fingerprint)),
         host_key_type: Some(presented.key_type.clone()),
     }
@@ -886,7 +899,7 @@ fn write_host_key_trust(state: &AppState, id: &str, fingerprint: &str, key_type:
 /// accepted, used, and wiped; nothing is stored by this command.
 ///
 /// For an SSH tunnel the first result is `unverified`: the server's host key
-/// is reported and no credential is sent until the owner repeats the call with
+/// is reported and no credential is sent until the call is repeated with
 /// that fingerprint in the form.
 #[tauri::command]
 pub async fn test_database_connection(
@@ -954,7 +967,7 @@ pub async fn test_database_connection(
 /// attempt and are zeroized immediately afterwards; they are never returned to
 /// the frontend and never recorded in the test history.
 ///
-/// For an SSH tunnel, `host_key_fingerprint` is the fingerprint the owner has
+/// For an SSH tunnel, `host_key_fingerprint` is the fingerprint that has
 /// just compared out of band (the `SHA256:...` form is accepted). Supplying it
 /// pins that key and, once the tunnel opens, records it as verified.
 #[tauri::command]
@@ -968,12 +981,25 @@ pub async fn test_saved_database(
     validate::validate_record_id(&id)?;
     check_test_budget(&state)?;
 
+    test_saved_inner(&app, &state, &id, host_key_fingerprint).await
+}
+
+/// The work of testing one saved connection.
+///
+/// Separate from the command so a sweep over every connection can use exactly
+/// the same path, rather than a second implementation that could drift.
+async fn test_saved_inner(
+    app: &AppHandle,
+    state: &AppState,
+    id: &str,
+    host_key_fingerprint: Option<String>,
+) -> AppResult<ConnectionTestResult> {
     let row = {
         let conn = state.lock_db()?;
         let row: Option<DatabaseRow> = conn
             .query_row(
                 &format!("SELECT {SELECT_COLUMNS} FROM database_connections WHERE id = ?1"),
-                [id.as_str()],
+                [id],
                 row_to_struct,
             )
             .optional()?;
@@ -995,7 +1021,7 @@ pub async fn test_saved_database(
         None => None,
     };
 
-    let password = match credentials::load(&id) {
+    let password = match credentials::load(id) {
         Ok((credentials::CredentialState::Present, Some(secret))) => secret,
         Ok(_) => {
             return failure(AppError::new(
@@ -1007,7 +1033,7 @@ pub async fn test_saved_database(
     };
 
     if row.connection_method == engines::SSH_TUNNEL_METHOD_ID {
-        return test_saved_tunnel(&app, &state, &id, &row, supplied, password).await;
+        return test_saved_tunnel(app, state, id, &row, supplied, password).await;
     }
 
     let target = ConnectionTarget {
@@ -1033,19 +1059,97 @@ pub async fn test_saved_database(
         ));
     }
 
-    record_test_budget(&state);
+    record_test_budget(state);
 
     let outcome = dbconn::test(target).await;
     let state_value = TestState::from_flag(match &outcome {
         Ok(_) => Some(1),
         Err(_) => Some(0),
     });
-    write_test_result(&state, &id, state_value);
+    write_test_result(state, id, state_value);
+    record_credential_status(state, id, credential_status_from(&outcome));
 
     match outcome {
         Ok(report) => Ok(success(report)),
         Err(err) => failure(err),
     }
+}
+
+/// What a sweep over every saved connection found.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionCheckSummary {
+    /// How many connections were tested.
+    pub tested: u32,
+    /// How many the server accepted.
+    pub ok: u32,
+    /// How many were refused.
+    pub rejected: u32,
+    /// Connections that could not be tested at all.
+    pub unreachable: u32,
+    /// The connections whose password was refused.
+    pub rejected_ids: Vec<String>,
+}
+
+/// Test every saved connection and report what the server said.
+///
+/// A password that was rotated on the server leaves the saved copy behind.
+/// Without this, the same failure is met on every run and the connection has to be
+/// work out which connection it was. The sweep is quiet about everything it
+/// cannot prove: a connection that could not be reached is counted as
+/// unreachable, not as refused.
+#[tauri::command]
+pub async fn check_all_connections(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<ConnectionCheckSummary> {
+    require_session(&state)?;
+
+    let connections: Vec<String> = {
+        let conn = state.lock_db()?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM database_connections ORDER BY created_at ASC, id ASC",
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        ids
+    };
+
+    let mut summary = ConnectionCheckSummary::default();
+
+    for id in connections {
+        // The cooldown still applies. A sweep is a diagnostic, not a licence
+        // to try passwords, so a locked-out sweep simply stops and reports
+        // what it learned.
+        if check_test_budget(&state).is_err() {
+            break;
+        }
+
+        let result = test_saved_inner(&app, &state, &id, None).await;
+
+        summary.tested += 1;
+
+        match result {
+            Ok(result) if result.outcome == "success" => summary.ok += 1,
+            Ok(result) => {
+                let refused = result
+                    .code
+                    .as_deref()
+                    .map(is_credential_rejection)
+                    .unwrap_or(false);
+                if refused {
+                    summary.rejected += 1;
+                    summary.rejected_ids.push(id);
+                } else {
+                    summary.unreachable += 1;
+                }
+            }
+            Err(_) => summary.unreachable += 1,
+        }
+    }
+
+    Ok(summary)
 }
 
 /// The SSH-tunnel half of `test_saved_database`.
@@ -1168,6 +1272,17 @@ async fn test_saved_tunnel(
             TestState::Failed
         };
         write_test_result(state, id, state_value);
+
+        // A refused password is worth remembering: it is the one failure the
+        // that can be fixed, and the notice says so.
+        let status = match result.outcome.as_str() {
+            "success" => Some("ok"),
+            _ => match result.code.as_deref() {
+                Some(code) if is_credential_rejection(code) => Some("rejected"),
+                _ => None,
+            },
+        };
+        record_credential_status(state, id, status);
     }
 
     Ok(result)
@@ -1189,7 +1304,7 @@ pub struct SavedTarget {
 /// Resolve a saved connection into a usable target, opening the SSH tunnel when
 /// the record uses one.
 ///
-/// The tunnel is only ever opened against a fingerprint the owner already
+/// The tunnel is only ever opened against a fingerprint that has already been
 /// verified: a backup must not be the thing that decides to trust a host key,
 /// so an unverified record is refused here and must go through a connection
 /// test first. No host key is persisted by this function.
@@ -1266,7 +1381,7 @@ pub async fn open_saved_target(
     let fields = tunnel_fields_from_row(&row)?;
     let credential = tunnel_credential_from_store(app, id, &fields)?;
 
-    // No `supplied` fingerprint: a backup trusts only what the owner already
+    // No `supplied` fingerprint: a backup trusts only what has already been
     // compared out of band during a connection test.
     let fingerprint = row
         .ssh_host_key_fingerprint
@@ -1404,6 +1519,43 @@ fn write_test_result(state: &AppState, id: &str, result: TestState) {
             );
             let _ = tx.commit();
         }
+    }
+}
+
+/// Whether an error means the server refused the secret that was sent.
+///
+/// A password that was rotated on the server leaves the saved copy behind,
+/// and this is what tells that apart from a network problem or a missing
+/// privilege.
+pub fn is_credential_rejection(code: &str) -> bool {
+    matches!(code, "auth_failed" | "ssh_auth_failed")
+}
+
+/// Record what the last attempt said about the saved secret.
+///
+/// `None` means "not known": a failure that had nothing to do with the
+/// password says nothing about it, and the previous answer is cleared rather
+/// than guessed at.
+pub fn record_credential_status(state: &AppState, id: &str, status: Option<&str>) {
+    if let Ok(mut conn) = state.lock_db() {
+        if let Ok(tx) = conn.transaction_with_behavior(TransactionBehavior::Immediate) {
+            let _ = tx.execute(
+                "UPDATE database_connections
+                 SET credential_status = ?2, credential_checked_at = ?3
+                 WHERE id = ?1",
+                rusqlite::params![id, status, util::now_secs()],
+            );
+            let _ = tx.commit();
+        }
+    }
+}
+
+/// What an outcome says about the saved secret.
+fn credential_status_from<T>(outcome: &AppResult<T>) -> Option<&'static str> {
+    match outcome {
+        Ok(_) => Some("ok"),
+        Err(err) if is_credential_rejection(&err.code) => Some("rejected"),
+        Err(_) => None,
     }
 }
 
@@ -1568,7 +1720,7 @@ pub fn create_database(
     let now = util::now_secs();
 
     let (ssh_host, ssh_port, ssh_username, ssh_auth_method) = viewable_ssh_fields(&prepared.ssh);
-    // A fingerprint only exists once the owner went through a verification
+    // A fingerprint only exists once a verification has been
     // flow; whatever the form carries was normalised during preparation.
     let ssh_host_key_fingerprint = prepared
         .ssh
@@ -1718,7 +1870,7 @@ pub fn update_database(
             _ => false,
         };
 
-    // The form may carry a fingerprint the owner just verified; otherwise a
+    // The form may carry a fingerprint that was just verified; otherwise a
     // stored one survives unless the SSH endpoint moved. A supplied
     // fingerprint that differs from the stored one has not been verified
     // against the server yet, so its key type is unknown until the next
@@ -1844,7 +1996,7 @@ pub fn update_database(
 ///
 /// The new secret replaces the old one in the Credential Manager. The previous
 /// secret is only removed once the new one is in place, so a failure part-way
-/// through cannot leave the owner with no credential at all.
+/// through cannot leave the account with no credential at all.
 #[tauri::command]
 pub fn update_database_credentials(
     state: State<'_, AppState>,
@@ -1891,6 +2043,14 @@ pub fn update_database_credentials(
         // New credentials invalidate the previous verdict.
         tx.execute(
             "UPDATE database_connections SET last_tested_at = NULL, last_test_ok = NULL WHERE id = ?1",
+            [id.as_str()],
+        )?;
+        // The notice about a refused password is about the *old* password, so
+        // it goes with it. The next test decides again.
+        tx.execute(
+            "UPDATE database_connections
+             SET credential_status = NULL, credential_checked_at = NULL
+             WHERE id = ?1",
             [id.as_str()],
         )?;
         db::audit_config(

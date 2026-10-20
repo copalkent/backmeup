@@ -5,6 +5,7 @@ import { AppShell, type AppSection } from "@/components/AppShell";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { TitleBar } from "@/components/TitleBar";
 import { ToastProvider } from "@/components/Toaster";
+import { UpdateDialog } from "@/components/UpdateDialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BackupHistoryScreen } from "@/screens/BackupHistoryScreen";
 import { DashboardScreen } from "@/screens/DashboardScreen";
@@ -19,6 +20,7 @@ import {
   ApiError,
   type BootstrapState,
   type RecoveryCodesView,
+  type UpdateInfo,
   api,
 } from "@/lib/api";
 
@@ -47,6 +49,21 @@ export default function App() {
    * a flat list of four sections.
    */
   const [section, setSection] = useState<AppSection>("dashboard");
+
+  /**
+   * The connection whose editor a notice asked to open.
+   *
+   * A refused password is only useful if the fix is one click away, so the
+   * bell hands the id over and the databases screen opens that connection.
+   */
+  const [editDatabaseId, setEditDatabaseId] = useState<string | null>(null);
+
+  /** The newest version the app has heard about, and whether to offer it. */
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateOpen, setUpdateOpen] = useState(false);
+
+  /** True once the account is signed in and the app itself is on screen. */
+  const signedIn = view === "app";
 
   /**
    * Ask the backend which screen to show. The routing decision is derived from
@@ -84,6 +101,42 @@ export default function App() {
     void refresh();
   }, [refresh]);
 
+  /**
+   * Look for a newer version, once, after the app is up.
+   *
+   * The check is quiet: a failure is silence, and a version that has already
+   * been dismissed is not offered again - though the notice stays in the
+   * bell. A backup in flight is never interrupted, so the prompt waits.
+   */
+  useEffect(() => {
+    if (!signedIn) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const info = await api.checkForUpdate();
+        if (cancelled) return;
+
+        setUpdate(info);
+        if (!info.available || info.dismissed) return;
+
+        const active = await api.activeBackupRun();
+        if (cancelled) return;
+
+        if (!active) {
+          setUpdateOpen(true);
+        }
+      } catch {
+        // No network, or the check is unavailable. Nothing is said.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn]);
+
   const handleSignOut = useCallback(async () => {
     // Return to a known section so the next sign-in never lands on a stale view.
     setSection("dashboard");
@@ -100,8 +153,6 @@ export default function App() {
     await refresh("app");
   }
 
-  const signedIn = view === "app";
-
   return (
     <ThemeProvider>
       <TooltipProvider delayDuration={350}>
@@ -111,6 +162,11 @@ export default function App() {
               signedIn={signedIn}
               owner={boot?.owner ?? null}
               onOpenSettings={() => setSection("settings")}
+              onEditDatabase={(id) => {
+                setEditDatabaseId(id);
+                setSection("databases");
+              }}
+              onOpenHistory={() => setSection("history")}
             />
 
             <main className="relative min-h-0 flex-1 overflow-hidden">
@@ -164,7 +220,12 @@ export default function App() {
                     />
                   ) : null}
 
-                  {section === "databases" ? <DatabasesScreen /> : null}
+                  {section === "databases" ? (
+                    <DatabasesScreen
+                      editId={editDatabaseId}
+                      onEditHandled={() => setEditDatabaseId(null)}
+                    />
+                  ) : null}
 
                   {section === "history" ? <BackupHistoryScreen /> : null}
 
@@ -201,6 +262,12 @@ export default function App() {
                 </div>
               ) : null}
             </main>
+
+            <UpdateDialog
+              open={updateOpen}
+              update={update}
+              onClose={() => setUpdateOpen(false)}
+            />
           </div>
         </ToastProvider>
       </TooltipProvider>

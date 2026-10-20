@@ -121,7 +121,7 @@ function toDraftFields(form: FormState): DatabaseDraftFields {
  *
  * For an SSH tunnel the first test is a *fingerprint check*: the server's host
  * key is shown with an `unverified` outcome, and nothing is authenticated
- * until the owner compares it with the server and explicitly trusts it.
+ * until it is compared with the server and explicitly trusted.
  *
  * Closing the form with unsaved edits asks first: keep editing, discard, or
  * store the non-secret fields as a draft that "Resume draft" can restore.
@@ -326,7 +326,7 @@ export function DatabaseDialog({
   /**
    * The SSH half of the payload, or null when the method is not a tunnel.
    *
-   * `fingerprintOverride` carries a fingerprint the owner just verified in the
+   * `fingerprintOverride` carries a fingerprint that was just verified in the
    * trust prompt; otherwise the remembered value is used.
    */
   function buildSsh(
@@ -482,7 +482,7 @@ export function DatabaseDialog({
   }
 
   /**
-   * The owner has compared the presented host key with the server. Remember
+   * The presented host key has been compared with the server. Remember
    * it and immediately re-test with the fingerprint pinned, so a succeeding
    * result is proof the pinned key was used.
    */
@@ -631,8 +631,8 @@ export function DatabaseDialog({
           {/*
             A real result of a real attempt. Never a placeholder: this stays
             empty until the backend has actually dialled the server. An
-            `unverified` outcome is the SSH host-key check awaiting the owner's
-            confirmation.
+            `unverified` outcome is the SSH host-key check awaiting a
+            comparison.
           */}
           {testResult ? (
             <Alert

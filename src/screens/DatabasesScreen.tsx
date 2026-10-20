@@ -6,6 +6,7 @@ import {
   Pencil,
   PlugZap,
   Plus,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 
@@ -17,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import {
   ApiError,
   api,
+  type ConnectionCheckSummary,
   type DatabaseConnection,
   type EngineCatalogue,
 } from "@/lib/api";
@@ -26,6 +28,7 @@ import {
   draftMatches,
   loadDatabaseDraft,
 } from "@/lib/databaseDraft";
+import { notifyNoticesChanged } from "@/lib/events";
 import { describeTestState, formatDateTime } from "@/lib/format";
 
 type DialogMode = { kind: "closed" } | { kind: "add" } | { kind: "edit"; row: DatabaseConnection };
@@ -40,7 +43,15 @@ const SSH_TUNNEL_METHOD = "ssh-tunnel";
  * actually produced, and a past success is reported as history rather than as
  * proof that the server is reachable now.
  */
-export function DatabasesScreen() {
+export function DatabasesScreen({
+  editId,
+  onEditHandled,
+}: {
+  /** A connection to open in the editor, asked for by a notice. */
+  editId?: string | null;
+  /** Called once that connection has been opened. */
+  onEditHandled?: () => void;
+} = {}) {
   const [databases, setDatabases] = useState<DatabaseConnection[]>([]);
   const [catalogue, setCatalogue] = useState<EngineCatalogue | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +64,11 @@ export function DatabasesScreen() {
   const [pendingRemoval, setPendingRemoval] = useState<DatabaseConnection | null>(null);
   const [removing, setRemoving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  /** The result of the last sweep over every saved connection. */
+  const [checkSummary, setCheckSummary] = useState<ConnectionCheckSummary | null>(
+    null,
+  );
+  const [checking, setChecking] = useState(false);
   const [testNotice, setTestNotice] = useState<{
     id: string;
     outcome: "success" | "failed" | "unverified";
@@ -89,6 +105,22 @@ export function DatabasesScreen() {
   const refreshDraft = useCallback(() => setDraft(loadDatabaseDraft()), []);
 
   /**
+   * Open a connection that was asked to be fixed.
+   *
+   * A refused password is only useful if the fix is one click away, so the
+   * bell hands the id over and this opens that connection's editor.
+   */
+  useEffect(() => {
+    if (!editId) return;
+
+    const row = databases.find((item) => item.id === editId);
+    if (row) {
+      setDialog({ kind: "edit", row });
+    }
+    onEditHandled?.();
+  }, [editId, databases, onEditHandled]);
+
+  /**
    * Open whatever the stored draft belongs to: the add form, or the row it
    * was editing. A draft whose row no longer exists has nothing to restore
    * into, so it is dropped.
@@ -111,13 +143,38 @@ export function DatabasesScreen() {
   }
 
   /** Merge one updated row back into the list without a full reload. */
-  function merge(database: DatabaseConnection) {
-    setDatabases((current) => {
+  function merge(database: DatabaseConnection) {    setDatabases((current) => {
       const exists = current.some((row) => row.id === database.id);
       return exists
         ? current.map((row) => (row.id === database.id ? database : row))
         : [...current, database];
     });
+  }
+
+  /**
+   * Test every saved connection at once.
+   *
+   * A password that was rotated on the server leaves the saved copy behind,
+   * and this is how the failing one is found, rather than meeting the
+   * same failure on every backup.
+   */
+  async function checkAll() {
+    setChecking(true);
+    setError(null);
+    try {
+      const summary = await api.checkAllConnections();
+      setCheckSummary(summary);
+      notifyNoticesChanged();
+      await load();
+    } catch (checkError) {
+      setError(
+        checkError instanceof ApiError
+          ? checkError.message
+          : "The connections could not be checked.",
+      );
+    } finally {
+      setChecking(false);
+    }
   }
 
   async function handleTest(row: DatabaseConnection, hostKeyFingerprint?: string) {
@@ -134,6 +191,8 @@ export function DatabasesScreen() {
       });
       // Re-read so the stored verdict matches what the user just saw.
       await load();
+      // A refused password is now a notice, so the bell has to hear about it.
+      notifyNoticesChanged();
     } catch (testError) {
       setError(
         testError instanceof ApiError
@@ -202,6 +261,19 @@ export function DatabasesScreen() {
               </Button>
             ) : null}
             <Button
+              variant="outline"
+              onClick={() => void checkAll()}
+              disabled={checking || databases.length === 0}
+              title="Test every saved connection and report which passwords the server no longer accepts"
+            >
+              {checking ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ShieldCheck className="size-4" aria-hidden="true" />
+              )}
+              Check all
+            </Button>
+            <Button
               onClick={() => setDialog({ kind: "add" })}
               disabled={!catalogue}
             >
@@ -211,6 +283,18 @@ export function DatabasesScreen() {
           </>
         }
       />
+
+      {checkSummary ? (
+        <p className="text-xs text-muted-foreground">
+          Checked {checkSummary.tested}{" "}
+          {checkSummary.tested === 1 ? "connection" : "connections"}:{" "}
+          {checkSummary.ok} accepted, {checkSummary.rejected} refused,{" "}
+          {checkSummary.unreachable} could not be reached.
+          {checkSummary.rejected > 0
+            ? " The refused ones are listed in the notifications."
+            : ""}
+        </p>
+      ) : null}
 
       {error ? (
         <Alert variant="destructive">

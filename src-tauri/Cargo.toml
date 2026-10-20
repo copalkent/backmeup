@@ -1,6 +1,6 @@
 [package]
 name = "backmeup"
-version = "0.1.0"
+version = "0.1.1"
 description = "BackMeUp - local-first MySQL backup manager for Windows"
 authors = ["BackMeUp"]
 edition = "2021"
@@ -16,6 +16,12 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+# The updater. It is used from the backend only, so the webview is given no
+# updater permission at all: the window can ask the app to check or install,
+# and the app decides whether that is allowed.
+tauri-plugin-updater = "2"
+# Version comparison for the update check.
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }

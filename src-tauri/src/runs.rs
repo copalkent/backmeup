@@ -10,7 +10,7 @@
 //!     that looks like a good backup. A cancelled or failed run deletes its
 //!     temporary file.
 //!   * Bytes are hashed as they are written, so the finished file carries a
-//!     SHA-256 the owner can verify later.
+//!     SHA-256 that can be verified later.
 //!   * Progress is reported per table (throttled), never per row.
 //!   * Secrets never reach this module's output: the password is read from OS
 //!     storage inside the run and dropped with the target, and never appears in
@@ -145,7 +145,7 @@ pub struct RunFinished {
     pub stage: String,
     /// Base name of the file, present only when the run succeeded.
     pub file_stem: Option<String>,
-    /// Name of the file kept in the owner's folder, when one was written.
+    /// Name of the file kept in the chosen folder, when one was written.
     pub file_name: Option<String>,
     /// `BackMeUp/<database>/<day>/<file>` when the copy reached Drive.
     pub drive_path: Option<String>,
@@ -413,7 +413,7 @@ struct RunDestination {
     /// The calendar day the run belongs to, fixed when it is accepted so the
     /// local copy and the Drive copy can never land on different days.
     day: String,
-    /// True when `folder` is temporary staging rather than the owner's folder.
+    /// True when `folder` is temporary staging rather than the chosen folder.
     staging: bool,
     /// Whether a Drive copy is attempted.
     drive_connected: bool,
@@ -481,6 +481,13 @@ async fn execute(
     let mut connection = match handshake {
         Ok(Ok(connection)) => connection,
         Ok(Err(err)) => {
+            // A refused SSH password is recorded against the connection, so
+            // it is clear which credential to re-enter instead of
+            // meeting the same failure on every run.
+            if databases::is_credential_rejection(&err.code) {
+                databases::record_credential_status(state, database_id, Some("rejected"));
+            }
+
             return failed(with_context(
                 err.message,
                 "opening the connection to the database",
@@ -578,7 +585,7 @@ async fn execute(
             // The path relative to the chosen folder, e.g.
             // `BackMeUp/shop/2026-10-20/shop_1700000000.sql`. A staged file is
             // not recorded: it is deleted after a successful upload, so it is
-            // not a place the owner can go back to.
+            // not a place that can be returned to.
             let local_name = if destination.staging {
                 None
             } else {
@@ -595,7 +602,7 @@ async fn execute(
             );
 
             // Upload when Drive is connected. When the run also wrote to the
-            // owner's folder, an upload problem must never undo the backup that
+            // chosen folder, an upload problem must never undo the backup that
             // already succeeded: it becomes a note on a successful run. When
             // Drive was the only destination, a failed upload means no copy
             // exists, so the run fails and the staged file is kept.
@@ -707,6 +714,13 @@ async fn execute(
                     sha256: None,
                 }
             } else {
+                // A refused password is recorded against the connection, so
+                // it is clear which credential to re-enter instead of
+                // meeting the same failure on every run.
+                if matches!(err, DumpError::Authentication) {
+                    databases::record_credential_status(state, database_id, Some("rejected"));
+                }
+
                 failed(dump_message(&err))
             }
         }
@@ -864,7 +878,7 @@ async fn upload_inner(
     let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
 
     // Checked before the upload rather than after: discovering the file does
-    // not fit half way through a multi-gigabyte transfer wastes the owner's time
+    // not fit half way through a multi-gigabyte transfer wastes the time
     // and their bandwidth.
     match drive::free_space(&client, token.as_str()).await {
         Ok(Some(free)) if free < size => {
@@ -890,7 +904,7 @@ async fn upload_inner(
         .map(|value| value.to_string_lossy().into_owned())
         .unwrap_or_else(|| "backup.sql".to_string());
 
-    // What the owner would see in Drive, recorded in history so a finished run
+    // What appears in Drive, recorded in history so a finished run
     // can point at the exact file.
     let display_path = format!("{}/{database_folder}/{day}/{name}", drive::ROOT_FOLDER);
 
@@ -930,7 +944,7 @@ async fn upload_inner(
     Ok(display_path)
 }
 
-/// `YYYY-MM-DD` on the owner's clock.
+/// `YYYY-MM-DD` on the local clock.
 ///
 /// Deliberately local, not UTC: a backup taken at 07:00 in UTC+8 belongs to
 /// today, not to the UTC date that is still yesterday. `GetLocalTime` applies
@@ -940,7 +954,7 @@ fn local_day() -> String {
     format!("{:04}-{:02}-{:02}", now.wYear, now.wMonth, now.wDay)
 }
 
-/// The per-run folder inside the owner's chosen destination:
+/// The per-run folder inside the chosen destination:
 /// `BackMeUp/<database>/<day>`.
 ///
 /// The local tree deliberately mirrors the Drive tree, so the relative path in
@@ -974,7 +988,7 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// Say *when* a failure happened, so the owner is never left with a bare
+/// Say *when* a failure happened, so there is never a bare
 /// "malformed packet" and no idea whether the connection or the read failed.
 fn with_context(message: String, context: &str) -> String {
     // Some sentences already end in a full stop; do not double it.
@@ -990,6 +1004,11 @@ fn dump_message(err: &DumpError) -> String {
         DumpError::Privileges => {
             "The database user cannot read every object in this database. A backup needs a user \
              with SELECT on the tables, plus SHOW VIEW for views."
+                .to_string()
+        }
+        DumpError::Authentication => {
+            "The database refused the saved user name or password. Re-enter the password for \
+             this connection and try again."
                 .to_string()
         }
         DumpError::Cancelled => "The backup was cancelled before it finished.".to_string(),
@@ -1176,7 +1195,7 @@ fn free_space(path: &Path) -> Option<u64> {
 /// The local data directory is used rather than the system temp folder so the
 /// file is on the same volume the app already owns and inherits the same
 /// per-user ACLs. It is removed as soon as the upload succeeds; a file left
-/// behind by a failed upload is kept for the owner to recover, then pruned
+/// behind by a failed upload is kept for recovery, then pruned
 /// after a month.
 fn staging_dir(app: &AppHandle) -> AppResult<PathBuf> {
     let dir = app
@@ -1232,7 +1251,7 @@ mod tests {
     use super::*;
 
     /// The checksum a run records must survive the trip into the history row:
-    /// that is the value the owner compares against a file later.
+    /// that is the value compared against a file later.
     #[test]
     fn a_finished_run_records_the_checksum_of_its_file() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
@@ -1490,7 +1509,7 @@ mod tests {
 
     #[test]
     fn failures_say_when_they_happened() {
-        // A bare "malformed packet" sentence must never reach the owner alone.
+        // A bare "malformed packet" sentence must never reach the screen alone.
         let bare = "The database server sent an unexpected or malformed packet response.";
         let contextual = with_context(bare.to_string(), "opening the connection to the database");
 

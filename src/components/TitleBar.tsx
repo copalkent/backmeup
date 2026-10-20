@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Copy, Folder, Minus, Square, X } from "lucide-react";
 
 import { GoogleDriveMark } from "@/components/icons";
+import { NoticesBell } from "@/components/NoticesBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api, type OwnerProfile } from "@/lib/api";
@@ -61,8 +62,12 @@ function WindowButton({ label, onClick, icon, className }: WindowButtonProps) {
 interface TitleBarProps {
   signedIn: boolean;
   owner: OwnerProfile | null;
-  /** Where the status chips and the profile take the owner. */
+  /** Where the status chips and the profile lead. */
   onOpenSettings: () => void;
+  /** Open the editor for a connection whose password was refused. */
+  onEditDatabase: (id: string) => void;
+  /** Open the backup history. */
+  onOpenHistory: () => void;
 }
 
 /**
@@ -77,7 +82,13 @@ interface TitleBarProps {
  * and the account chip, so status is visible from every screen instead of only
  * inside Settings.
  */
-export function TitleBar({ signedIn, owner, onOpenSettings }: TitleBarProps) {
+export function TitleBar({
+  signedIn,
+  owner,
+  onOpenSettings,
+  onEditDatabase,
+  onOpenHistory,
+}: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
 
   const syncMaximized = useCallback(async () => {
@@ -164,6 +175,10 @@ export function TitleBar({ signedIn, owner, onOpenSettings }: TitleBarProps) {
 
         {signedIn ? (
           <>
+            <NoticesBell
+              onEditDatabase={onEditDatabase}
+              onOpenHistory={onOpenHistory}
+            />
             <DestinationChips onOpenSettings={onOpenSettings} />
             <ProfileChip owner={owner} onOpenSettings={onOpenSettings} />
           </>
@@ -336,7 +351,7 @@ function initialsOf(fullName: string): string {
     .join("");
 }
 
-/** The signed-in owner, between the status chips and the window controls. */
+/** The signed-in account, between the status chips and the window controls. */
 function ProfileChip({
   owner,
   onOpenSettings,

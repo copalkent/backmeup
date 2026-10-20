@@ -137,7 +137,7 @@ fn classify(err: tiberius::error::Error) -> AppError {
         },
         // SQL Server asks the client to follow a redirect during login. That
         // is not honoured: it is an open-redirect vector and BackMeUp only
-        // ever connects to the address the owner configured.
+        // ever connects to the configured address.
         tiberius::error::Error::Routing { .. } => AppError::new(
             "routing_refused",
             "The server asked BackMeUp to follow a different address, which it will not do.",

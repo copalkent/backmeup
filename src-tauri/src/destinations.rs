@@ -10,7 +10,7 @@
 //!     path it can act on. The folder is chosen through the native Windows
 //!     dialog *inside Rust*, then re-validated here.
 //!   * Nothing is written, created, overwritten or deleted. `location` is the
-//!     only path-like value stored, and it is the owner's own choice.
+//!     only path-like value stored, and it is a deliberate choice.
 //!   * No OAuth client id, client secret or refresh token exists anywhere in
 //!     this file, in the frontend bundle, or in the database.
 
@@ -70,7 +70,7 @@ pub struct DestinationView {
     pub unavailable_reason: String,
     /// One of `configured`, `not_configured` or `unavailable`.
     pub status: String,
-    /// The owner's chosen folder. Never `None` for a configured local folder.
+    /// The chosen folder. Never `None` for a configured local folder.
     pub location: Option<String>,
     pub updated_at: Option<i64>,
 }
@@ -169,7 +169,7 @@ pub fn configured_count(conn: &Connection) -> AppResult<u32> {
 ///
 /// A row must exist for `backup_runs.destination_id` to reference. It is never
 /// deleted afterwards: `backup_runs` cascades on delete, so removing the row
-/// would erase the owner's history.
+/// would erase the history.
 pub fn mark_google_drive_connected(conn: &Connection) -> AppResult<String> {
     let now = util::now_secs();
 

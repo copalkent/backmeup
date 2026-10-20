@@ -277,7 +277,7 @@ function LocalFolderRow({
 /**
  * Google Drive, as a destination in its own right.
  *
- * Connecting opens the owner's browser at Google's consent screen. The wait has
+ * Connecting opens the default browser at Google's consent screen. The wait has
  * a visible Cancel: a browser profile that opens somewhere unexpected should
  * never leave the app spinning until the timeout.
  */
@@ -289,7 +289,7 @@ function GoogleDriveRow() {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [testing, setTesting] = useState(false);
-  // The sign-in URL, sent by the backend as soon as it exists. Kept so an owner
+  // The sign-in URL, sent by the backend as soon as it exists. Kept so a sign-in
   // whose browser did not open can still finish signing in.
   const [signinUrl, setSigninUrl] = useState<string | null>(null);
 

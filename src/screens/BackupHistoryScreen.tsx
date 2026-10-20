@@ -161,7 +161,7 @@ export function BackupHistoryScreen() {
                     {/*
                       Wrapped rather than truncated: a reason that explains the
                       failure is the whole point of the row, and a clipped
-                      sentence tells the owner nothing.
+                      sentence tells the reader nothing.
                     */}
                     {run.failureReason ? (
                       <span className="mt-0.5 block text-xs break-words text-muted-foreground">
